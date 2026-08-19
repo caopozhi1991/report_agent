@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Iterable, List, Optional
 
 import pandas as pd
@@ -107,11 +108,13 @@ class MultiAccountReportAgent:
         metrics = MetricsCalculator.calculate(state)
         report_dir = Path(self.config["output_dir"])
         report_dir.mkdir(parents=True, exist_ok=True)
-        output_path = report_dir / f"{account_id}_{date}_report.pdf"
+        account_name = self.config.get("account_names", {}).get(account_id, account_id)
+        safe_name = re.sub(r"[\\/:*?\"<>|]", "_", str(account_name)).strip() or account_id
+        output_path = report_dir / f"股票实盘复盘报告_{safe_name}_{date}.pdf"
 
         self.cache_manager.save_state(account_id, date, state)
 
-        report = PDFReportGenerator(str(output_path), account_id)
+        report = PDFReportGenerator(str(output_path), account_name)
         report.add_nav_and_metrics(
             metrics["nav_series"],
             metrics,

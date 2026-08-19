@@ -19,6 +19,10 @@ CONFIG = {
         "1219020189": 600000,
         "1206016764": 100000,
     },
+    "account_names": {
+        "1219020189": "chenwei",
+        "1206016764": "xiaofeng",
+    },
     "enabled_modules": {
         "1219020189": ["summary", "equity", "trade", "llm_analysis"],
         "1206016764": ["summary", "equity"],
