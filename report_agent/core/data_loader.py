@@ -12,9 +12,9 @@ class DataLoader:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     def load_account_data(self, account_id: str, date: str) -> Dict[str, Any]:
-        account_file = self.data_dir / f"{account_id}_account.csv"
-        deals_file = self.data_dir / f"{account_id}_deals.csv"
-        positions_file = self.data_dir / f"{account_id}_positions.csv"
+        account_file = self._find_input_file(account_id, "account")
+        deals_file = self._find_input_file(account_id, "deals")
+        positions_file = self._find_input_file(account_id, "positions")
 
         account_raw = self._read_csv(account_file)
         deals_df = self._normalize_deals(self._read_csv(deals_file))
@@ -30,7 +30,19 @@ class DataLoader:
     def _read_csv(self, file_path: Path) -> pd.DataFrame:
         if not file_path.exists():
             return pd.DataFrame()
+        for encoding in ("utf-8-sig", "gb18030", "utf-8"):
+            try:
+                return pd.read_csv(file_path, encoding=encoding)
+            except UnicodeDecodeError:
+                continue
         return pd.read_csv(file_path)
+
+    def _find_input_file(self, account_id: str, suffix: str) -> Path:
+        direct = self.data_dir / f"{account_id}_{suffix}.csv"
+        if direct.exists():
+            return direct
+        candidates = sorted(self.data_dir.glob(f"{account_id}_*_{suffix}.csv"))
+        return candidates[0] if candidates else direct
 
     def _extract_account_info(self, account_df: pd.DataFrame) -> Dict[str, float]:
         if account_df.empty:
@@ -144,6 +156,8 @@ class DataLoader:
                 renamed[column] = pd.to_numeric(renamed[column], errors="coerce")
 
         final = renamed[[col for col in ["证券代码", "当前拥股", "成本价", "市值", "盈亏"] if col in renamed.columns]]
+        if "当前拥股" in final.columns:
+            final = final[final["当前拥股"].fillna(0) > 0].copy()
         return final
 
     def _to_float(self, value: Any) -> float:

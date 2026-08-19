@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -17,14 +18,19 @@ class CacheManager:
     def save_state(self, account_id: str, date: str, state) -> str:
         account_dir = self.cache_dir / str(account_id)
         account_dir.mkdir(parents=True, exist_ok=True)
-        target = account_dir / f"{date}.json"
+        normalized_date = self.normalize_date(date)
+        target = account_dir / f"{normalized_date}.json"
         payload = state.to_dict() if hasattr(state, "to_dict") else state
         with target.open("w", encoding="utf-8") as fh:
             json.dump(payload, fh, ensure_ascii=False, indent=2)
         return str(target)
 
     def load_state(self, account_id: str, date: str) -> Optional[AccountState]:
-        target = self.cache_dir / str(account_id) / f"{date}.json"
+        account_dir = self.cache_dir / str(account_id)
+        normalized_date = self.normalize_date(date)
+        target = account_dir / f"{normalized_date}.json"
+        if not target.exists() and str(date) != normalized_date:
+            target = account_dir / f"{date}.json"
         if not target.exists():
             return None
         with target.open("r", encoding="utf-8") as fh:
@@ -74,10 +80,11 @@ class CacheManager:
         dates = []
         for file_path in account_dir.glob("*.json"):
             if file_path.stem:
-                dates.append(file_path.stem)
+                dates.append(self.normalize_date(file_path.stem))
         return sorted(dates)
 
     def get_previous_date(self, account_id: str, current_date: str) -> Optional[str]:
+        current_date = self.normalize_date(current_date)
         dates = self.list_dates(account_id)
         if not dates:
             return None
@@ -85,3 +92,11 @@ class CacheManager:
         if not normalized:
             return None
         return max(normalized)
+
+    @staticmethod
+    def normalize_date(date: str) -> str:
+        value = str(date).strip()
+        compact = re.sub(r"[^0-9]", "", value)
+        if len(compact) == 8 and compact.isdigit():
+            return compact
+        return value

@@ -29,6 +29,16 @@ class TradeAnalysis(AnalysisModule):
             }
 
         trades = pd.concat(all_trades, ignore_index=True)
+        trades = self._exclude_repurchase(trades)
+        if trades.empty:
+            return {
+                "buy_count": 0,
+                "sell_count": 0,
+                "total_buy_amount": 0.0,
+                "total_sell_amount": 0.0,
+                "net_investment": 0.0,
+                "realized_pnl": 0.0,
+            }
         buys = trades[trades["操作"].astype(str).str.contains("买入|BUY|B", na=False)]
         sells = trades[trades["操作"].astype(str).str.contains("卖出|SELL|S", na=False)]
 
@@ -46,6 +56,15 @@ class TradeAnalysis(AnalysisModule):
             "net_investment": net_investment,
             "realized_pnl": realized_pnl,
         }
+
+    @staticmethod
+    def _exclude_repurchase(trades: pd.DataFrame) -> pd.DataFrame:
+        if trades.empty or "证券代码" not in trades.columns:
+            return trades
+        codes = trades["证券代码"].astype(str).str.split(".").str[0].str.zfill(6)
+        operations = trades.get("操作", pd.Series("", index=trades.index)).astype(str)
+        repurchase = operations.str.contains("回购|逆回购", case=False, na=False) | codes.str.startswith(("204", "1318"))
+        return trades[~repurchase].copy()
 
     def render(self, analysis_result) -> plt.Figure:
         fig, axes = plt.subplots(1, 2, figsize=(12, 4))

@@ -64,7 +64,9 @@ class AccountState:
             total_asset = self.current_asset
         if self.initial_capital == 0:
             return 0.0
-        return (prev_total_asset - daily_profit + daily_profit) / self.initial_capital if daily_profit is not None else total_asset / self.initial_capital
+        if total_asset is not None and total_asset > 0:
+            return total_asset / self.initial_capital
+        return prev_total_asset / self.initial_capital
 
     def get_previous_nav(self, date: str) -> float | None:
         if self.nav_history.empty:

@@ -40,6 +40,7 @@ class MultiAccountReportAgent:
             from .analysis.llm.llm_analysis import LLMAnalysisModule
             self.llm_module = LLMAnalysisModule(
                 api_key=llm_cfg.get("api_key", ""),
+                base_url=llm_cfg.get("base_url", ""),
                 model=llm_cfg.get("model", "gpt-4o-mini"),
                 temperature=llm_cfg.get("temperature", 0.7),
             )
@@ -58,8 +59,16 @@ class MultiAccountReportAgent:
         account_info = account_data.get("account", {})
         deals_df = account_data.get("deals", pd.DataFrame())
         positions_df = account_data.get("positions", pd.DataFrame())
-
+        positions_df = self._stocks_only(positions_df)
+        deals_df = self._stocks_only(deals_df)
+        deals_df = self._exclude_repurchase(deals_df)
         initial_capital = float(self.config["initial_capital"].get(account_id, 0.0))
+        account_info = dict(account_info)
+        stock_profit = float(positions_df.get("盈亏", pd.Series(dtype=float)).sum())
+        account_info["stock_mv"] = float(positions_df.get("市值", pd.Series(dtype=float)).sum())
+        account_info["profit"] = stock_profit
+        # The broker total includes ETFs; pure-stock NAV is based only on stock P&L.
+        account_info["total_asset"] = initial_capital + stock_profit
         restored = self.cache_manager.load_or_seed(account_id, date)
         if restored is None:
             state = AccountState(account_id=account_id, initial_capital=initial_capital)
@@ -102,26 +111,44 @@ class MultiAccountReportAgent:
 
         self.cache_manager.save_state(account_id, date, state)
 
-        enabled_names = self.config.get("enabled_modules", {}).get(account_id, [])
-        modules = self.module_registry.get_enabled_modules(asset_type, enabled_names)
-
         report = PDFReportGenerator(str(output_path), account_id)
-        report.add_cover_page({
-            "date": date,
-            "nav": metrics["current_nav"],
-            "total_return": metrics["total_return"],
-            "max_drawdown": metrics["max_drawdown"],
-            "current_asset": state.current_asset,
-        })
-        report.add_nav_chart(metrics["nav_series"])
-        report.add_drawdown_chart(metrics["drawdown_series"])
-
-        for module in modules:
-            analysis_result = module.analyze(state, self.config)
-            report.add_analysis_module(module, analysis_result)
+        report.add_nav_and_metrics(
+            metrics["nav_series"],
+            metrics,
+            initial_capital,
+            float(positions_df.get("市值", pd.Series(dtype=float)).sum()),
+        )
+        trade_result = TradeAnalysis().analyze(state, self.config)
+        trade_result["initial_capital"] = initial_capital
+        llm_results = None
+        if self.llm_module is not None:
+            llm_results = {
+                "trade": self.llm_module.analyze_trade(state, trade_result),
+                "positions": self.llm_module.analyze_positions(state, positions_df),
+            }
+        report.add_stock_review(trade_result, deals_df, positions_df, llm_results)
 
         report.save()
         return str(output_path)
+
+    @staticmethod
+    def _stocks_only(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty or "证券代码" not in frame.columns:
+            return frame
+        filtered = frame.copy()
+        codes = filtered["证券代码"].astype(str).str.split(".").str[0].str.zfill(6)
+        etf_prefixes = ("15", "16", "50", "51", "52", "56", "58")
+        return filtered[~codes.str.startswith(etf_prefixes)].copy()
+
+    @staticmethod
+    def _exclude_repurchase(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.empty or "证券代码" not in frame.columns:
+            return frame
+        filtered = frame.copy()
+        codes = filtered["证券代码"].astype(str).str.split(".").str[0].str.zfill(6)
+        operations = filtered.get("操作", pd.Series("", index=filtered.index)).astype(str)
+        repurchase = operations.str.contains("回购|逆回购", case=False, na=False) | codes.str.startswith(("204", "1318"))
+        return filtered[~repurchase].copy()
 
     def generate_all(self, date: str | None = None, data_dir: str | None = None) -> List[str]:
         date = date or pd.Timestamp.today().strftime("%Y%m%d")

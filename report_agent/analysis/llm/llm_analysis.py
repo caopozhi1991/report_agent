@@ -12,15 +12,19 @@ class LLMAnalysisModule(AnalysisModule):
     name = "llm_analysis"
     display_name = "智能分析"
 
-    def __init__(self, api_key: str = None, model: str = "gpt-4o-mini", temperature: float = 0.7):
+    def __init__(self, api_key: str = None, base_url: str = None, model: str = "gpt-4o-mini", temperature: float = 0.7):
         self.api_key = api_key
+        self.base_url = base_url
         self.model = model
         self.temperature = temperature
         self.client = None
         if api_key:
             try:
                 from openai import OpenAI
-                self.client = OpenAI(api_key=api_key)
+                client_kwargs = {"api_key": api_key}
+                if base_url:
+                    client_kwargs["base_url"] = base_url
+                self.client = OpenAI(**client_kwargs)
             except Exception:
                 self.client = None
 
@@ -32,28 +36,47 @@ class LLMAnalysisModule(AnalysisModule):
                 "risks": "缺少外部模型推断，建议人工核对仓位与回撤风险。",
                 "outlook": "继续保持监控净值与回撤趋势，待下一交易日数据确认后再调整仓位。",
             }
-
         summary = self._build_data_summary(account_state)
-        prompt = self._build_prompt(summary)
+        return self._call_section(self._build_prompt(summary), "当前数据已提交给大模型分析。")
+
+    def analyze_trade(self, account_state, trade_result: dict) -> dict:
+        prompt = (
+            "请只分析今日交易行为，输出 JSON，字段必须为 trade_logic、market_environment、risks、outlook。"
+            f"交易统计：{json.dumps(trade_result, ensure_ascii=False)}。"
+            "如果没有纯股票成交，请明确说明处于观望状态，ETF 不纳入分析。"
+        )
+        return self._call_section(prompt, "当前没有纯股票成交，策略处于观望状态。")
+
+    def analyze_positions(self, account_state, positions: pd.DataFrame) -> dict:
+        records = positions.to_dict("records") if not positions.empty else []
+        prompt = (
+            "请只分析当前纯股票持仓，输出 JSON，字段必须为 trade_logic、market_environment、risks、outlook。"
+            f"持仓数据：{json.dumps(records, ensure_ascii=False)}。"
+            "请关注集中度、浮盈亏、仓位水平和后续风险，ETF 已经剔除。"
+        )
+        return self._call_section(prompt, "当前纯股票持仓维持观望，重点关注仓位和个股浮盈亏变化。")
+
+    def _call_section(self, prompt: str, offline_text: str) -> dict:
+        if self.client is None:
+            return {
+                "trade_logic": offline_text,
+                "market_environment": "离线模式，未执行外部模型推断。",
+                "risks": "请结合净值回撤和个股浮盈亏人工复核。",
+                "outlook": "等待下一交易日数据确认后再调整策略。",
+            }
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": "你是一位专业的投资分析助手，擅长从交易数据中提炼逻辑和洞察。"},
+                {"role": "system", "content": "你是一位专业的投资分析助手，只基于提供的数据回答。"},
                 {"role": "user", "content": prompt},
             ],
             temperature=self.temperature,
             response_format={"type": "json_object"},
         )
-        content = response.choices[0].message.content
         try:
-            return json.loads(content)
+            return json.loads(response.choices[0].message.content)
         except Exception:
-            return {
-                "trade_logic": content,
-                "market_environment": "",
-                "risks": "",
-                "outlook": "",
-            }
+            return {"trade_logic": response.choices[0].message.content, "market_environment": "", "risks": "", "outlook": ""}
 
     def render(self, result: dict):
         fig, ax = plt.subplots(figsize=(12, 9))

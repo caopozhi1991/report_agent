@@ -1,4 +1,10 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 CONFIG = {
     "data_dir": "./data",
@@ -18,9 +24,10 @@ CONFIG = {
         "1206016764": ["summary", "equity"],
     },
     "llm": {
-        "enabled": False,
+        "enabled": os.getenv("REPORT_LLM_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"},
         "api_key": os.getenv("OPENAI_API_KEY", ""),
-        "model": "gpt-4o-mini",
-        "temperature": 0.7,
+        "base_url": os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        "temperature": float(os.getenv("OPENAI_TEMPERATURE", "0.7")),
     },
 }
