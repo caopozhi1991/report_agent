@@ -70,16 +70,18 @@ class MultiAccountReportAgent:
         positions_df = account_data.get("positions", pd.DataFrame())
         positions_df = self._stocks_only(positions_df)
         deals_df = self._stocks_only(deals_df)
-        deals_df = self._exclude_repurchase(deals_df)
         initial_capital = float(self.config["initial_capital"].get(account_id, 0.0))
         account_info = dict(account_info)
         stock_profit = float(positions_df.get("盈亏", pd.Series(dtype=float)).sum())
+        realized_trade_profit = self._calculate_realized_trade_pnl(deals_df)
+        reverse_repo_interest = self._calculate_reverse_repo_interest(deals_df)
+        strategy_profit = stock_profit + realized_trade_profit + reverse_repo_interest
         account_info["stock_mv"] = float(positions_df.get("市值", pd.Series(dtype=float)).sum())
-        # 净值口径：券商总资产 / 实际入金；持仓盈亏仍用于持仓分析展示
-        broker_total = float(account_info.get("total_asset", 0.0) or 0.0)
-        account_info["profit"] = float(account_info.get("profit", stock_profit) or stock_profit)
-        if broker_total <= 0:
-            account_info["total_asset"] = initial_capital + stock_profit
+        account_info["profit"] = strategy_profit
+        account_info["total_asset"] = initial_capital + strategy_profit
+        account_info["strategy_profit"] = strategy_profit
+        account_info["realized_trade_profit"] = realized_trade_profit
+        account_info["reverse_repo_interest"] = reverse_repo_interest
         restored = self.cache_manager.load_or_seed(account_id, date)
         if restored is None:
             state = AccountState(account_id=account_id, initial_capital=initial_capital)
@@ -148,6 +150,65 @@ class MultiAccountReportAgent:
 
         report.save()
         return str(output_path)
+
+    @staticmethod
+    def _calculate_realized_trade_pnl(deals_df: pd.DataFrame) -> float:
+        if deals_df is None or deals_df.empty:
+            return 0.0
+        filtered = deals_df.copy()
+        if "证券代码" in filtered.columns:
+            codes = filtered["证券代码"].astype(str).str.split(".").str[0].str.zfill(6)
+            etf_prefixes = ("15", "16", "50", "51", "52", "56", "58")
+            filtered = filtered[~codes.str.startswith(etf_prefixes)].copy()
+        if "证券代码" in filtered.columns:
+            repo_mask = filtered["证券代码"].astype(str).str.split(".").str[0].str.zfill(6).str.startswith(("204", "1318"))
+            filtered = filtered[~repo_mask].copy()
+        if "操作" not in filtered.columns or "成交金额" not in filtered.columns:
+            return 0.0
+
+        buy_mask = filtered["操作"].astype(str).str.contains("买入|BUY|B", na=False)
+        sell_mask = filtered["操作"].astype(str).str.contains("卖出|SELL|S", na=False)
+        buy_amount = float(pd.to_numeric(filtered.loc[buy_mask, "成交金额"], errors="coerce").fillna(0.0).sum())
+        sell_amount = float(pd.to_numeric(filtered.loc[sell_mask, "成交金额"], errors="coerce").fillna(0.0).sum())
+        return sell_amount - buy_amount
+
+    @staticmethod
+    def _calculate_reverse_repo_interest(deals_df: pd.DataFrame) -> float:
+        if deals_df is None or deals_df.empty:
+            return 0.0
+        filtered = deals_df.copy()
+        if "证券代码" in filtered.columns:
+            codes = filtered["证券代码"].astype(str).str.split(".").str[0].str.zfill(6)
+            etf_prefixes = ("15", "16", "50", "51", "52", "56", "58")
+            filtered = filtered[~codes.str.startswith(etf_prefixes)].copy()
+        if filtered.empty:
+            return 0.0
+
+        repo_mask = pd.Series(False, index=filtered.index)
+        if "证券代码" in filtered.columns:
+            repo_mask |= filtered["证券代码"].astype(str).str.split(".").str[0].str.zfill(6).str.startswith(("204", "1318"))
+        if "操作" in filtered.columns:
+            repo_mask |= filtered["操作"].astype(str).str.contains("回购|逆回购", case=False, na=False)
+        repo = filtered[repo_mask].copy()
+        if repo.empty:
+            return 0.0
+
+        principal = pd.to_numeric(repo.get("成交金额", pd.Series(0.0, index=repo.index)), errors="coerce").fillna(0.0)
+        annual_rate = pd.to_numeric(repo.get("成交价格", pd.Series(0.0, index=repo.index)), errors="coerce").fillna(0.0)
+        dates = repo.get("成交日期", pd.Series("", index=repo.index)).astype(str)
+        day_counts = []
+        for value in dates:
+            text = str(value).strip()
+            try:
+                if len(text) >= 8 and text.isdigit():
+                    dt = pd.to_datetime(text, format="%Y%m%d")
+                    day_counts.append(1.0)
+                else:
+                    day_counts.append(1.0)
+            except Exception:
+                day_counts.append(1.0)
+        day_counts = pd.Series(day_counts, index=repo.index, dtype=float)
+        return float(((principal * (annual_rate / 100.0) * day_counts / 365.0).sum()))
 
     @staticmethod
     def _stocks_only(frame: pd.DataFrame) -> pd.DataFrame:

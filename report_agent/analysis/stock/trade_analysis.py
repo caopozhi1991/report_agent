@@ -29,7 +29,6 @@ class TradeAnalysis(AnalysisModule):
             }
 
         trades = pd.concat(all_trades, ignore_index=True)
-        trades = self._exclude_repurchase(trades)
         if trades.empty:
             return {
                 "buy_count": 0,

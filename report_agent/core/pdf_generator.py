@@ -131,11 +131,11 @@ class PDFReportGenerator:
 
     def add_stock_review(self, stats: dict, trades: pd.DataFrame, positions: pd.DataFrame, llm_results: dict | None = None):
         trade_text = (
-            f"当日共 {stats.get('buy_count', 0) + stats.get('sell_count', 0)} 笔纯股票成交："
+            f"当日共 {stats.get('buy_count', 0) + stats.get('sell_count', 0)} 笔策略成交："
             f"{stats.get('buy_count', 0)} 笔买入，{stats.get('sell_count', 0)} 笔卖出。\n\n"
-            "纯股票部分无交易，策略处于持仓观望状态。所有 ETF 和逆回购成交均不纳入本报告。"
+            "纯股票部分无交易，策略处于持仓观望状态。ETF 仍被剔除；逆回购成交已计入策略收益。"
             if trades.empty
-            else "当日纯股票成交已按买入、卖出分类统计，ETF 和逆回购成交不纳入本报告。"
+            else "当日策略成交已按买入、卖出分类统计，ETF 被剔除，逆回购成交已纳入策略收益。"
         )
         trade_llm_text = self._llm_text(llm_results.get("trade", llm_results)) if llm_results else ""
         self._add_trade_page(stats, trade_text, trade_llm_text)

@@ -73,17 +73,27 @@ class AccountState:
         return current_nav
 
     def calculate_nav(self, date: str, prev_total_asset: float | None = None, daily_profit: float | None = None, total_asset: float | None = None) -> float:
-        if prev_total_asset is None:
-            prev_total_asset = self.initial_capital
-        if daily_profit is None:
-            daily_profit = self.current_profit
-        if total_asset is None:
-            total_asset = self.current_asset
         if self.initial_capital == 0:
             return 0.0
-        if total_asset is not None and total_asset > 0:
-            return total_asset / self.initial_capital
-        return prev_total_asset / self.initial_capital
+
+        previous_strategy_capital = float(prev_total_asset) if prev_total_asset is not None else self.initial_capital
+        current_total_asset = float(total_asset) if total_asset is not None else self.current_asset
+        delta_profit = float(daily_profit) if daily_profit is not None else self.current_profit
+
+        # 递归净值的基数必须是上一日的策略资金，而不是初始资金。
+        # 这里保留两条路径：
+        # 1) 若当前快照是精确的策略资金，则用它；
+        # 2) 否则用上一日策略资金 + 当日盈亏递推。
+        if previous_strategy_capital > 0:
+            recursive_total_asset = previous_strategy_capital + delta_profit
+            if current_total_asset > 0:
+                return max(recursive_total_asset, current_total_asset) / self.initial_capital
+            return recursive_total_asset / self.initial_capital
+
+        if current_total_asset > 0:
+            return current_total_asset / self.initial_capital
+
+        return previous_strategy_capital / self.initial_capital
 
     def get_previous_nav(self, date: str) -> float | None:
         if self.nav_history.empty:
