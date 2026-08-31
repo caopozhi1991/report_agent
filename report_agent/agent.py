@@ -11,7 +11,8 @@ from .analysis.stock.equity_analysis import EquityAnalysis
 from .analysis.stock.summary_analysis import SummaryAnalysis
 from .analysis.stock.trade_analysis import TradeAnalysis
 from .config import CONFIG
-from .core.account_state import AccountState
+from .core.account_state import AccountState, normalize_date_key
+from .core.benchmark_loader import BenchmarkLoader
 from .core.cache_manager import CacheManager
 from .core.data_loader import DataLoader
 from .core.metrics_calculator import MetricsCalculator
@@ -23,6 +24,13 @@ class MultiAccountReportAgent:
         self.config = {**CONFIG, **(config or {})}
         self.data_loader = DataLoader(self.config["data_dir"])
         self.cache_manager = CacheManager(self.config["cache_dir"])
+        bench_cfg = self.config.get("benchmarks", {})
+        self.benchmark_loader = BenchmarkLoader(
+            cache_dir=self.config["cache_dir"],
+            symbols=bench_cfg.get("symbols"),
+            api_key=bench_cfg.get("api_key", ""),
+            enabled=bool(bench_cfg.get("enabled", True)),
+        )
         self.module_registry = ModuleRegistry()
         self.llm_module = None
         self._register_default_modules()
@@ -67,9 +75,11 @@ class MultiAccountReportAgent:
         account_info = dict(account_info)
         stock_profit = float(positions_df.get("盈亏", pd.Series(dtype=float)).sum())
         account_info["stock_mv"] = float(positions_df.get("市值", pd.Series(dtype=float)).sum())
-        account_info["profit"] = stock_profit
-        # The broker total includes ETFs; pure-stock NAV is based only on stock P&L.
-        account_info["total_asset"] = initial_capital + stock_profit
+        # 净值口径：券商总资产 / 实际入金；持仓盈亏仍用于持仓分析展示
+        broker_total = float(account_info.get("total_asset", 0.0) or 0.0)
+        account_info["profit"] = float(account_info.get("profit", stock_profit) or stock_profit)
+        if broker_total <= 0:
+            account_info["total_asset"] = initial_capital + stock_profit
         restored = self.cache_manager.load_or_seed(account_id, date)
         if restored is None:
             state = AccountState(account_id=account_id, initial_capital=initial_capital)
@@ -77,6 +87,8 @@ class MultiAccountReportAgent:
             state = restored
         else:
             state = AccountState.from_dict(restored) if isinstance(restored, dict) else AccountState.from_seed(account_id, restored, initial_capital)
+        # 以 config 入金为准，避免历史缓存里的旧本金把净值算偏
+        state.initial_capital = initial_capital
 
         if self.config.get("account_types", {}).get(account_id, self.config.get("default_asset_type", "stock")) == "stock":
             asset_type = "stock"
@@ -99,11 +111,12 @@ class MultiAccountReportAgent:
 
         state.update(date, account_info, deals_df, positions_df)
 
-        nav_value = state.calculate_nav(date, previous_total_asset, state.current_profit, state.current_asset)
-        state.nav_history.loc[date] = nav_value
+        date_key = normalize_date_key(date)
+        nav_value = state.calculate_nav(date_key, previous_total_asset, state.current_profit, state.current_asset)
+        state.nav_history.loc[date_key] = nav_value
         if state.peak_nav is None or nav_value > state.peak_nav:
             state.peak_nav = nav_value
-            state.peak_date = date
+            state.peak_date = date_key
 
         metrics = MetricsCalculator.calculate(state)
         report_dir = Path(self.config["output_dir"])
@@ -115,11 +128,13 @@ class MultiAccountReportAgent:
         self.cache_manager.save_state(account_id, date, state)
 
         report = PDFReportGenerator(str(output_path), account_name)
+        benchmarks = self.benchmark_loader.get_normalized_series(metrics["nav_series"])
         report.add_nav_and_metrics(
             metrics["nav_series"],
             metrics,
             initial_capital,
             float(positions_df.get("市值", pd.Series(dtype=float)).sum()),
+            benchmarks=benchmarks,
         )
         trade_result = TradeAnalysis().analyze(state, self.config)
         trade_result["initial_capital"] = initial_capital

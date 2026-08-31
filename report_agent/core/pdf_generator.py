@@ -55,15 +55,39 @@ class PDFReportGenerator:
                         xytext=(8, 8), textcoords="offset points", fontsize=10)
         self.pages.append(fig)
 
-    def add_nav_and_metrics(self, nav_series: pd.Series, metrics: dict, initial_capital: float, stock_mv: float):
+    def add_nav_and_metrics(
+        self,
+        nav_series: pd.Series,
+        metrics: dict,
+        initial_capital: float,
+        stock_mv: float,
+        benchmarks: dict[str, pd.Series] | None = None,
+    ):
         fig = plt.figure(figsize=self.PAGE_SIZE)
-        chart_ax = fig.add_axes([0.10, 0.49, 0.80, 0.39])
+        has_benchmarks = bool(benchmarks)
+        chart_ax = fig.add_axes([0.10, 0.52 if has_benchmarks else 0.49, 0.80, 0.36 if has_benchmarks else 0.39])
         nav_series = nav_series.sort_index()
-        chart_ax.plot(nav_series.index.astype(str), nav_series.values, marker="o", linewidth=1.8, color="#2E75B6")
+        x_labels = nav_series.index.astype(str)
+        chart_ax.plot(x_labels, nav_series.values, marker="o", linewidth=1.8, color="#2E75B6", label="策略净值")
+        benchmark_colors = {"沪深300": "#ED7D31", "上证指数": "#70AD47"}
+        for name, series in (benchmarks or {}).items():
+            aligned = series.reindex(nav_series.index)
+            if aligned.dropna().empty:
+                continue
+            chart_ax.plot(
+                x_labels,
+                aligned.values,
+                linewidth=1.5,
+                color=benchmark_colors.get(name, "#7F7F7F"),
+                label=name,
+                alpha=0.9,
+            )
         chart_ax.set_title("一、净值与权益变化（纯股票策略）", fontsize=14, fontweight="bold", pad=12)
-        chart_ax.set_ylabel("单位净值")
+        chart_ax.set_ylabel("单位净值（起点归一）")
         chart_ax.grid(True, linestyle="--", alpha=0.3)
         chart_ax.tick_params(axis="x", rotation=35, labelsize=8)
+        if has_benchmarks:
+            chart_ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
         if not nav_series.empty:
             chart_ax.annotate(f"{nav_series.iloc[-1]:.4f}", (len(nav_series) - 1, nav_series.iloc[-1]),
                               xytext=(8, 8), textcoords="offset points", fontsize=9)
@@ -72,7 +96,7 @@ class PDFReportGenerator:
         low_date = str(nav_series.idxmin()) if not nav_series.empty else ""
         rows = [
             ["指标", "数值"],
-            ["策略初始本金", f"{initial_capital:,.2f} 元"],
+            ["账户实际入金", f"{initial_capital:,.2f} 元"],
             ["历史最高净值", f"{metrics.get('peak_nav', 1.0):.4f}（{peak_date}）"],
             ["历史最低净值", f"{nav_series.min():.4f}（{low_date}）" if not nav_series.empty else "1.0000"],
             ["当前单位净值", f"{metrics.get('current_nav', 1.0):.4f}"],
@@ -80,19 +104,29 @@ class PDFReportGenerator:
             ["期间最大回撤", f"{abs(metrics.get('max_drawdown', 0.0)):.2%}"],
             ["当前股票仓位", f"{stock_mv / initial_capital:.1%}" if initial_capital else "0.0%"],
         ]
-        table_ax = fig.add_axes([0.12, 0.08, 0.76, 0.31])
+        strategy_return = float(metrics.get("total_return", 0.0))
+        for name, series in (benchmarks or {}).items():
+            valid = series.dropna()
+            if valid.empty:
+                continue
+            bench_return = float(valid.iloc[-1] / valid.iloc[0] - 1.0)
+            rows.append([f"{name}期间收益", f"{bench_return:+.2%}"])
+            rows.append([f"相对{name}超额", f"{strategy_return - bench_return:+.2%}"])
+        table_top = 0.46 if has_benchmarks else 0.43
+        table_height = 0.36 if has_benchmarks else 0.31
+        table_ax = fig.add_axes([0.12, 0.05, 0.76, table_height])
         table_ax.axis("off")
         table = table_ax.table(cellText=rows[1:], colLabels=rows[0], loc="center", cellLoc="center",
                                bbox=[0, 0, 1, 1], colWidths=[0.45, 0.55])
         table.auto_set_font_size(False)
-        table.set_fontsize(9)
+        table.set_fontsize(8 if has_benchmarks else 9)
         for (row_index, _), cell in table.get_celld().items():
             cell.set_edgecolor("#D9E2F3")
             if row_index == 0:
                 cell.set_facecolor("#2E75B6")
                 cell.get_text().set_color("white")
                 cell.get_text().set_weight("bold")
-        fig.text(0.5, 0.43, "策略核心指标汇总", ha="center", va="center", fontsize=12, fontweight="bold")
+        fig.text(0.5, table_top, "策略核心指标汇总", ha="center", va="center", fontsize=12, fontweight="bold")
         self.pages.append(fig)
 
     def add_stock_review(self, stats: dict, trades: pd.DataFrame, positions: pd.DataFrame, llm_results: dict | None = None):

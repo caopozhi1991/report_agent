@@ -16,7 +16,7 @@ CONFIG = {
         "1206016764": "stock",
     },
     "initial_capital": {
-        "1219020189": 600000,
+        "1219020189": 1000000,
         "1206016764": 100000,
     },
     "account_names": {
@@ -26,6 +26,14 @@ CONFIG = {
     "enabled_modules": {
         "1219020189": ["summary", "equity", "trade", "llm_analysis"],
         "1206016764": ["summary", "equity"],
+    },
+    "benchmarks": {
+        "enabled": os.getenv("REPORT_BENCHMARK_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"},
+        "api_key": os.getenv("TICKFLOW_API_KEY", ""),
+        "symbols": {
+            "沪深300": "000300.SH",
+            "上证指数": "000001.SH",
+        },
     },
     "llm": {
         "enabled": os.getenv("REPORT_LLM_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"},
