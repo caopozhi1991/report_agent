@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import pandas as pd
 
@@ -24,6 +24,12 @@ class AccountState:
         current_positions: pd.DataFrame | None = None,
         current_profit: float = 0.0,
         current_asset: float = 0.0,
+        cash_balance: float | None = None,
+        repo_positions: List[Dict[str, Any]] | None = None,
+        cash_ledger: Dict[str, List[Dict[str, Any]]] | None = None,
+        base_total_equity: float | None = None,
+        current_stock_mv: float = 0.0,
+        current_repo_mv: float = 0.0,
         peak_nav: float | None = None,
         peak_date: str | None = None,
     ):
@@ -35,6 +41,12 @@ class AccountState:
         self.current_positions = current_positions if current_positions is not None else pd.DataFrame()
         self.current_profit = float(current_profit)
         self.current_asset = float(current_asset)
+        self.cash_balance = float(cash_balance) if cash_balance is not None else float(self.initial_capital)
+        self.repo_positions = self._normalize_repo_positions(repo_positions)
+        self.cash_ledger = {normalize_date_key(k): list(v) for k, v in (cash_ledger or {}).items()}
+        self.current_stock_mv = float(current_stock_mv)
+        self.current_repo_mv = float(current_repo_mv)
+        self.base_total_equity = self._resolve_base_total_equity(base_total_equity)
         self.peak_nav = float(peak_nav) if peak_nav is not None else (float(self.nav_history.max()) if not self.nav_history.empty else 1.0)
         self.peak_date = normalize_date_key(peak_date) if peak_date is not None else (str(self.nav_history.idxmax()) if not self.nav_history.empty else "")
 
@@ -49,21 +61,148 @@ class AccountState:
         )
         return normalized.groupby(level=0).last().sort_index()
 
+    def _resolve_base_total_equity(self, base_total_equity: float | None) -> float:
+        if base_total_equity is not None and float(base_total_equity) > 0:
+            return float(base_total_equity)
+
+        if self.current_asset > 0 and not self.nav_history.empty:
+            latest_nav = float(self.nav_history.iloc[-1])
+            if latest_nav > 0:
+                return self.current_asset / latest_nav
+
+        if self.initial_capital > 0:
+            return self.initial_capital
+
+        return max(float(self.current_asset), 1.0)
+
+    @staticmethod
+    def _normalize_repo_positions(repo_positions: List[Dict[str, Any]] | None) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for item in repo_positions or []:
+            principal = float(item.get("principal", 0.0))
+            if principal <= 0:
+                continue
+            normalized.append(
+                {
+                    "principal": principal,
+                    "rate": float(item.get("rate", 0.0)),
+                    "trade_date": normalize_date_key(item.get("trade_date", "")),
+                    "maturity_date": normalize_date_key(item.get("maturity_date", "")),
+                    "term_days": int(item.get("term_days", 1) or 1),
+                    "security_code": str(item.get("security_code", "")),
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _is_reverse_repo_trade(code: str, operation: str) -> bool:
+        normalized_code = str(code).split(".")[0].zfill(6)
+        text = str(operation)
+        return normalized_code.startswith(("204", "1318")) or ("回购" in text or "逆回购" in text)
+
+    @staticmethod
+    def _parse_repo_term_days(code: str) -> int:
+        normalized_code = str(code).split(".")[0].zfill(6)
+        suffix = normalized_code[-3:]
+        known = {"001": 1, "002": 2, "003": 3, "004": 4, "007": 7, "014": 14, "028": 28, "091": 91, "182": 182}
+        return known.get(suffix, 1)
+
+    @staticmethod
+    def _add_days(date_key: str, days: int) -> str:
+        try:
+            return (pd.to_datetime(date_key, format="%Y%m%d") + pd.Timedelta(days=int(days))).strftime("%Y%m%d")
+        except Exception:
+            return date_key
+
+    @staticmethod
+    def _to_numeric(series_or_value: Any) -> float:
+        if isinstance(series_or_value, pd.Series):
+            return float(pd.to_numeric(series_or_value, errors="coerce").fillna(0.0).sum())
+        try:
+            return float(series_or_value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _record_cash_entry(self, entries: List[Dict[str, Any]], entry_type: str, amount: float, balance_after: float, date_key: str, note: str = "", security_code: str = ""):
+        entries.append(
+            {
+                "date": normalize_date_key(date_key),
+                "type": entry_type,
+                "amount": float(amount),
+                "balance_after": float(balance_after),
+                "security_code": str(security_code),
+                "note": str(note),
+            }
+        )
+
     def update(self, date: str, account_info: Dict[str, float], deals_df: pd.DataFrame, positions_df: pd.DataFrame):
         self.current_positions = positions_df.copy() if not positions_df.empty else pd.DataFrame()
-        self.current_profit = float(account_info.get("profit", 0.0))
-        self.current_asset = float(account_info.get("total_asset", 0.0))
-
         history_date = normalize_date_key(date)
-        prev_nav = self.get_previous_nav(history_date)
 
-        if prev_nav is None:
-            previous_total_asset = self.initial_capital
-        else:
-            previous_total_asset = prev_nav * self.initial_capital
+        entries: List[Dict[str, Any]] = []
+        remaining_repo_positions: List[Dict[str, Any]] = []
+        for repo in self.repo_positions:
+            if repo.get("maturity_date", "") <= history_date:
+                principal = float(repo.get("principal", 0.0))
+                term_days = int(repo.get("term_days", 1) or 1)
+                rate = float(repo.get("rate", 0.0))
+                interest = principal * (rate / 100.0) * term_days / 365.0
+                self.cash_balance += principal
+                self._record_cash_entry(entries, "repo_maturity_principal_in", principal, self.cash_balance, history_date, note="逆回购到期本金回款", security_code=repo.get("security_code", ""))
+                self.cash_balance += interest
+                self._record_cash_entry(entries, "repo_maturity_interest_in", interest, self.cash_balance, history_date, note="逆回购到期利息入账", security_code=repo.get("security_code", ""))
+            else:
+                remaining_repo_positions.append(repo)
+        self.repo_positions = remaining_repo_positions
 
-        current_nav = self.calculate_nav(history_date, previous_total_asset, self.current_profit, self.current_asset)
+        if deals_df is not None and not deals_df.empty:
+            trade_rows = deals_df.copy()
+            for _, row in trade_rows.iterrows():
+                operation = str(row.get("操作", ""))
+                security_code = str(row.get("证券代码", ""))
+                amount = self._to_numeric(row.get("成交金额", 0.0))
+                if amount <= 0:
+                    continue
+
+                if self._is_reverse_repo_trade(security_code, operation):
+                    term_days = self._parse_repo_term_days(security_code)
+                    maturity_date = self._add_days(history_date, term_days)
+                    rate = self._to_numeric(row.get("成交价格", 0.0))
+                    self.cash_balance -= amount
+                    self._record_cash_entry(entries, "repo_open_principal_out", -amount, self.cash_balance, history_date, note="逆回购成交，转入逆回购资产", security_code=security_code)
+                    self.repo_positions.append(
+                        {
+                            "principal": amount,
+                            "rate": rate,
+                            "trade_date": history_date,
+                            "maturity_date": maturity_date,
+                            "term_days": term_days,
+                            "security_code": security_code,
+                        }
+                    )
+                    continue
+
+                op_upper = operation.upper()
+                if "买入" in operation or "BUY" in op_upper or op_upper == "B":
+                    self.cash_balance -= amount
+                    self._record_cash_entry(entries, "stock_buy_out", -amount, self.cash_balance, history_date, note="股票买入现金流出", security_code=security_code)
+                elif "卖出" in operation or "SELL" in op_upper or op_upper == "S":
+                    self.cash_balance += amount
+                    self._record_cash_entry(entries, "stock_sell_in", amount, self.cash_balance, history_date, note="股票卖出现金流入", security_code=security_code)
+
+        self.cash_ledger[history_date] = entries
+
+        self.current_stock_mv = self._to_numeric(positions_df.get("市值", pd.Series(dtype=float))) if positions_df is not None else 0.0
+        self.current_repo_mv = float(sum(float(item.get("principal", 0.0)) for item in self.repo_positions))
+        self.current_asset = float(self.cash_balance + self.current_stock_mv + self.current_repo_mv)
+        self.current_profit = float(self.current_asset - self.base_total_equity)
+
+        current_nav = self.calculate_nav(history_date, total_asset=self.current_asset)
         self.nav_history.loc[history_date] = current_nav
+
+        if self.peak_nav is None or current_nav > self.peak_nav:
+            self.peak_nav = current_nav
+            self.peak_date = history_date
 
         if not deals_df.empty:
             self.trade_history[history_date] = deals_df.copy()
@@ -73,27 +212,12 @@ class AccountState:
         return current_nav
 
     def calculate_nav(self, date: str, prev_total_asset: float | None = None, daily_profit: float | None = None, total_asset: float | None = None) -> float:
-        if self.initial_capital == 0:
+        if self.base_total_equity == 0:
             return 0.0
-
-        previous_strategy_capital = float(prev_total_asset) if prev_total_asset is not None else self.initial_capital
-        current_total_asset = float(total_asset) if total_asset is not None else self.current_asset
-        delta_profit = float(daily_profit) if daily_profit is not None else self.current_profit
-
-        # 递归净值的基数必须是上一日的策略资金，而不是初始资金。
-        # 这里保留两条路径：
-        # 1) 若当前快照是精确的策略资金，则用它；
-        # 2) 否则用上一日策略资金 + 当日盈亏递推。
-        if previous_strategy_capital > 0:
-            recursive_total_asset = previous_strategy_capital + delta_profit
-            if current_total_asset > 0:
-                return max(recursive_total_asset, current_total_asset) / self.initial_capital
-            return recursive_total_asset / self.initial_capital
-
-        if current_total_asset > 0:
-            return current_total_asset / self.initial_capital
-
-        return previous_strategy_capital / self.initial_capital
+        current_total_asset = float(total_asset) if total_asset is not None else float(self.current_asset)
+        if current_total_asset <= 0 and prev_total_asset is not None:
+            current_total_asset = float(prev_total_asset) + float(daily_profit or 0.0)
+        return current_total_asset / self.base_total_equity
 
     def get_previous_nav(self, date: str) -> float | None:
         if self.nav_history.empty:
@@ -136,6 +260,12 @@ class AccountState:
             "current_positions": self.current_positions.to_dict(orient="records") if not self.current_positions.empty else [],
             "current_profit": self.current_profit,
             "current_asset": self.current_asset,
+            "cash_balance": self.cash_balance,
+            "repo_positions": self.repo_positions,
+            "cash_ledger": self.cash_ledger,
+            "base_total_equity": self.base_total_equity,
+            "current_stock_mv": self.current_stock_mv,
+            "current_repo_mv": self.current_repo_mv,
             "peak_nav": self.peak_nav,
             "peak_date": normalize_date_key(self.peak_date) if self.peak_date else "",
         }
@@ -159,6 +289,12 @@ class AccountState:
             current_positions=current_positions,
             current_profit=payload.get("current_profit", 0.0),
             current_asset=payload.get("current_asset", 0.0),
+            cash_balance=payload.get("cash_balance"),
+            repo_positions=payload.get("repo_positions", []),
+            cash_ledger=payload.get("cash_ledger", {}),
+            base_total_equity=payload.get("base_total_equity"),
+            current_stock_mv=payload.get("current_stock_mv", 0.0),
+            current_repo_mv=payload.get("current_repo_mv", 0.0),
             peak_nav=payload.get("peak_nav"),
             peak_date=payload.get("peak_date"),
         )
@@ -178,6 +314,12 @@ class AccountState:
             current_positions=pd.DataFrame(seed_data.get("positions", [])),
             current_profit=float(seed_data.get("profit", 0.0)),
             current_asset=float(seed_data.get("total_asset", 0.0)),
+            cash_balance=seed_data.get("cash_balance", initial_capital),
+            repo_positions=seed_data.get("repo_positions", []),
+            cash_ledger=seed_data.get("cash_ledger", {}),
+            base_total_equity=seed_data.get("base_total_equity", initial_capital),
+            current_stock_mv=float(seed_data.get("stock_mv", 0.0)),
+            current_repo_mv=float(seed_data.get("repo_mv", 0.0)),
             peak_nav=seed_data.get("peak_nav", float(pd.Series(nav_history, dtype=float).max()) if nav_history else 1.0),
             peak_date=seed_data.get("peak_date", str(sorted(nav_history.keys())[-1]) if nav_history else ""),
         )

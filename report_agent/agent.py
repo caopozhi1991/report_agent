@@ -11,7 +11,7 @@ from .analysis.stock.equity_analysis import EquityAnalysis
 from .analysis.stock.summary_analysis import SummaryAnalysis
 from .analysis.stock.trade_analysis import TradeAnalysis
 from .config import CONFIG
-from .core.account_state import AccountState, normalize_date_key
+from .core.account_state import AccountState
 from .core.benchmark_loader import BenchmarkLoader
 from .core.cache_manager import CacheManager
 from .core.data_loader import DataLoader
@@ -61,6 +61,7 @@ class MultiAccountReportAgent:
     def generate_for_account(self, account_id: str, date: str | None = None, data_dir: str | None = None) -> str:
         if date is None:
             date = pd.Timestamp.today().strftime("%Y%m%d")
+        date = self.cache_manager.normalize_date(date)
         data_dir = data_dir or self.config["data_dir"]
         self.data_loader = DataLoader(data_dir)
 
@@ -72,23 +73,29 @@ class MultiAccountReportAgent:
         deals_df = self._stocks_only(deals_df)
         initial_capital = float(self.config["initial_capital"].get(account_id, 0.0))
         account_info = dict(account_info)
-        stock_profit = float(positions_df.get("盈亏", pd.Series(dtype=float)).sum())
-        realized_trade_profit = self._calculate_realized_trade_pnl(deals_df)
-        reverse_repo_interest = self._calculate_reverse_repo_interest(deals_df)
-        strategy_profit = stock_profit + realized_trade_profit + reverse_repo_interest
         account_info["stock_mv"] = float(positions_df.get("市值", pd.Series(dtype=float)).sum())
-        account_info["profit"] = strategy_profit
-        account_info["total_asset"] = initial_capital + strategy_profit
-        account_info["strategy_profit"] = strategy_profit
-        account_info["realized_trade_profit"] = realized_trade_profit
-        account_info["reverse_repo_interest"] = reverse_repo_interest
-        restored = self.cache_manager.load_or_seed(account_id, date)
-        if restored is None:
-            state = AccountState(account_id=account_id, initial_capital=initial_capital)
-        elif isinstance(restored, AccountState):
-            state = restored
+
+        # Idempotency on same-day reruns:
+        # - If a previous date exists, always rebuild today from that previous snapshot.
+        # - If only today's cache exists, reuse it without replaying today's deals.
+        existing_today = self.cache_manager.load_state(account_id, date)
+        prev_date = self.cache_manager.get_previous_date(account_id, date)
+        prev_state = self.cache_manager.load_state(account_id, prev_date) if prev_date else None
+
+        should_update = True
+        if prev_state is not None:
+            state = prev_state
+        elif existing_today is not None:
+            state = existing_today
+            should_update = False
         else:
-            state = AccountState.from_dict(restored) if isinstance(restored, dict) else AccountState.from_seed(account_id, restored, initial_capital)
+            restored = self.cache_manager.load_or_seed(account_id, date)
+            if restored is None:
+                state = AccountState(account_id=account_id, initial_capital=initial_capital)
+            elif isinstance(restored, AccountState):
+                state = restored
+            else:
+                state = AccountState.from_dict(restored) if isinstance(restored, dict) else AccountState.from_seed(account_id, restored, initial_capital)
         # 以 config 入金为准，避免历史缓存里的旧本金把净值算偏
         state.initial_capital = initial_capital
 
@@ -97,28 +104,8 @@ class MultiAccountReportAgent:
         else:
             asset_type = self.config.get("default_asset_type", "stock")
 
-        previous_date = self.cache_manager.get_previous_date(account_id, date)
-        prev_state = None
-        if previous_date is not None:
-            prev_state = self.cache_manager.load_state(account_id, previous_date)
-        elif restored is not None and hasattr(restored, "nav_history"):
-            prev_state = restored
-
-        if prev_state is not None and hasattr(prev_state, "current_asset"):
-            previous_total_asset = float(prev_state.current_asset)
-        elif prev_state is not None and not prev_state.nav_history.empty:
-            previous_total_asset = float(prev_state.nav_history.iloc[-1] * prev_state.initial_capital)
-        else:
-            previous_total_asset = initial_capital
-
-        state.update(date, account_info, deals_df, positions_df)
-
-        date_key = normalize_date_key(date)
-        nav_value = state.calculate_nav(date_key, previous_total_asset, state.current_profit, state.current_asset)
-        state.nav_history.loc[date_key] = nav_value
-        if state.peak_nav is None or nav_value > state.peak_nav:
-            state.peak_nav = nav_value
-            state.peak_date = date_key
+        if should_update:
+            state.update(date, account_info, deals_df, positions_df)
 
         metrics = MetricsCalculator.calculate(state)
         report_dir = Path(self.config["output_dir"])

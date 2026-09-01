@@ -1,32 +1,377 @@
 {
-    "date": "2026-08-17",
-    "total_asset": 100010.01,
-    "profit": 10.01,
-    "stock_mv": 10326.00,
-    "nav": 1.0001,
-    "peak_nav": 1.0151,
-    "peak_date": "2026-08-11",
-    "initial_capital": 100000,
-    "positions": [
-        {"code": "000630", "name": "铜陵有色", "qty": 300, "cost": 6.577, "market_value": 2037.00, "profit": 63.83, "板块": "有色/铜"},
-        {"code": "600588", "name": "用友网络", "qty": 200, "cost": 11.796, "market_value": 2324.00, "profit": -35.20, "板块": "软件"},
-        {"code": "601288", "name": "农业银行", "qty": 300, "cost": 6.431, "market_value": 1938.00, "profit": 8.84, "板块": "银行"},
-        {"code": "601390", "name": "中国中铁", "qty": 100, "cost": 4.779, "market_value": 437.00, "profit": -40.93, "板块": "基建"},
-        {"code": "601398", "name": "工商银行", "qty": 300, "cost": 7.516, "market_value": 2268.00, "profit": 13.31, "板块": "银行"},
-        {"code": "601857", "name": "中国石油", "qty": 100, "cost": 10.618, "market_value": 1067.00, "profit": 5.18, "板块": "能源"},
-        {"code": "601868", "name": "中国能建", "qty": 100, "cost": 2.600, "market_value": 255.00, "profit": -5.02, "板块": "基建"}
-    ],
-    "nav_history": {
-        "2026-07-20": 1.0000,
-        "2026-07-24": 0.9937,
-        "2026-07-28": 0.9940,
-        "2026-07-29": 0.9939,
-        "2026-07-30": 1.0031,
-        "2026-07-31": 1.0121,
-        "2026-08-03": 1.0144,
-        "2026-08-11": 1.0151,
-        "2026-08-13": 1.0061,
-        "2026-08-14": 1.0062,
-        "2026-08-17": 1.0001
+  "account_id": "1206016764",
+  "date": "20260901",
+  "total_asset": 100270.47988677476,
+  "profit": 270.4798867747595,
+  "stock_mv": 1123.0,
+  "nav": 1.0027047988677475,
+  "peak_nav": 1.0151,
+  "peak_date": "20260811",
+  "initial_capital": 100000.0,
+  "positions": [
+    {
+      "证券代码": 600372,
+      "当前拥股": 100,
+      "成本价": 10.871,
+      "市值": 1123.0,
+      "盈亏": 35.91
     }
+  ],
+  "nav_history": {
+    "20260720": 1.0,
+    "20260724": 0.9937,
+    "20260728": 0.994,
+    "20260729": 0.9939,
+    "20260730": 1.0031,
+    "20260731": 1.0121,
+    "20260803": 1.0144,
+    "20260811": 1.0151,
+    "20260813": 1.0061,
+    "20260814": 1.0062,
+    "20260817": 1.0001,
+    "20260819": 0.9983505,
+    "20260820": 0.9988405,
+    "20260821": 1.0041485168424522,
+    "20260824": 0.9926434942181797,
+    "20260825": 0.9904570023918358,
+    "20260826": 0.9985514932238758,
+    "20260827": 1.0063114841207563,
+    "20260828": 1.001796937000537,
+    "20260831": 1.005212878586332,
+    "20260901": 1.0027047988677475
+  },
+  "cash_balance": 94227.05,
+  "repo_positions": [],
+  "cash_ledger": {
+    "20260819": [
+      {
+        "date": "20260819",
+        "type": "day_start_inferred",
+        "amount": 0.0,
+        "balance_after": 81224.05,
+        "security_code": "",
+        "note": "由权益恒等式反推期末现金"
+      }
+    ],
+    "20260820": [
+      {
+        "date": "20260820",
+        "type": "stock_sell_in",
+        "amount": 689.0,
+        "balance_after": 81913.05,
+        "security_code": "000157",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_buy_out",
+        "amount": -695.0,
+        "balance_after": 81218.05,
+        "security_code": "000876",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_buy_out",
+        "amount": -2720.0,
+        "balance_after": 78498.05,
+        "security_code": "002648",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_sell_in",
+        "amount": 1240.0,
+        "balance_after": 79738.05,
+        "security_code": "002600",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_sell_in",
+        "amount": 1392.0,
+        "balance_after": 81130.05,
+        "security_code": "600886",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_sell_in",
+        "amount": 1023.0,
+        "balance_after": 82153.05,
+        "security_code": "600016",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_buy_out",
+        "amount": -1677.0,
+        "balance_after": 80476.05,
+        "security_code": "600926",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_buy_out",
+        "amount": -1645.0,
+        "balance_after": 78831.05,
+        "security_code": "601919",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_sell_in",
+        "amount": 902.0,
+        "balance_after": 79733.05,
+        "security_code": "600027",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260820",
+        "type": "stock_sell_in",
+        "amount": 876.0,
+        "balance_after": 80609.05,
+        "security_code": "601668",
+        "note": "股票卖出现金流入"
+      }
+    ],
+    "20260821": [
+      {
+        "date": "20260821",
+        "type": "stock_sell_in",
+        "amount": 689.0,
+        "balance_after": 81298.05,
+        "security_code": "000157",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_buy_out",
+        "amount": -695.0,
+        "balance_after": 80603.05,
+        "security_code": "000876",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_buy_out",
+        "amount": -2720.0,
+        "balance_after": 77883.05,
+        "security_code": "002648",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_sell_in",
+        "amount": 1240.0,
+        "balance_after": 79123.05,
+        "security_code": "002600",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_sell_in",
+        "amount": 1392.0,
+        "balance_after": 80515.05,
+        "security_code": "600886",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_sell_in",
+        "amount": 1023.0,
+        "balance_after": 81538.05,
+        "security_code": "600016",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_buy_out",
+        "amount": -1677.0,
+        "balance_after": 79861.05,
+        "security_code": "600926",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_buy_out",
+        "amount": -1645.0,
+        "balance_after": 78216.05,
+        "security_code": "601919",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_sell_in",
+        "amount": 902.0,
+        "balance_after": 79118.05,
+        "security_code": "600027",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260821",
+        "type": "stock_sell_in",
+        "amount": 876.0,
+        "balance_after": 79994.05,
+        "security_code": "601668",
+        "note": "股票卖出现金流入"
+      }
+    ],
+    "20260824": [
+      {
+        "date": "20260824",
+        "type": "stock_sell_in",
+        "amount": 784.0,
+        "balance_after": 80778.05,
+        "security_code": "600930",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260824",
+        "type": "stock_sell_in",
+        "amount": 2322.0,
+        "balance_after": 83100.05,
+        "security_code": "601398",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260824",
+        "type": "stock_sell_in",
+        "amount": 1988.0,
+        "balance_after": 85088.05,
+        "security_code": "601658",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260824",
+        "type": "stock_buy_out",
+        "amount": -692.0,
+        "balance_after": 84396.05,
+        "security_code": "600115",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260824",
+        "type": "stock_sell_in",
+        "amount": 1920.0,
+        "balance_after": 86316.05,
+        "security_code": "601728",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260824",
+        "type": "stock_sell_in",
+        "amount": 478.0,
+        "balance_after": 86794.05,
+        "security_code": "600219",
+        "note": "股票卖出现金流入"
+      }
+    ],
+    "20260825": [
+      {
+        "date": "20260825",
+        "type": "stock_sell_in",
+        "amount": 658.0,
+        "balance_after": 87452.05,
+        "security_code": "000630",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260825",
+        "type": "stock_sell_in",
+        "amount": 705.0,
+        "balance_after": 88157.05,
+        "security_code": "000157",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260825",
+        "type": "stock_buy_out",
+        "amount": -1182.0,
+        "balance_after": 86975.05,
+        "security_code": "600930",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260825",
+        "type": "stock_sell_in",
+        "amount": 908.0,
+        "balance_after": 87883.05,
+        "security_code": "600027",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260825",
+        "type": "stock_sell_in",
+        "amount": 1053.0,
+        "balance_after": 88936.05,
+        "security_code": "600016",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260825",
+        "type": "stock_sell_in",
+        "amount": 884.0,
+        "balance_after": 89820.05,
+        "security_code": "601668",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260825",
+        "type": "stock_sell_in",
+        "amount": 664.0,
+        "balance_after": 90484.05,
+        "security_code": "601901",
+        "note": "股票卖出现金流入"
+      }
+    ],
+    "20260826": [
+      {
+        "date": "20260826",
+        "type": "stock_sell_in",
+        "amount": 1014.0,
+        "balance_after": 91498.05,
+        "security_code": "600588",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260826",
+        "type": "stock_sell_in",
+        "amount": 1185.0,
+        "balance_after": 92683.05,
+        "security_code": "600930",
+        "note": "股票卖出现金流入"
+      },
+      {
+        "date": "20260826",
+        "type": "stock_buy_out",
+        "amount": -1087.0,
+        "balance_after": 91596.05,
+        "security_code": "600372",
+        "note": "股票买入现金流出"
+      },
+      {
+        "date": "20260826",
+        "type": "stock_sell_in",
+        "amount": 720.0,
+        "balance_after": 92316.05,
+        "security_code": "600115",
+        "note": "股票卖出现金流入"
+      }
+    ],
+    "20260827": [
+      {
+        "date": "20260827",
+        "type": "stock_sell_in",
+        "amount": 1911.0,
+        "balance_after": 94227.05,
+        "security_code": "601728",
+        "note": "股票卖出现金流入"
+      }
+    ],
+    "20260828": [],
+    "20260831": []
+  },
+  "base_total_equity": 100000.0,
+  "repo_mv": 0.0
 }
