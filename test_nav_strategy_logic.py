@@ -3,7 +3,7 @@ import pandas as pd
 from report_agent.core.account_state import AccountState
 
 
-def test_reverse_repo_t_day_is_asset_and_no_interest_recognized():
+def test_reverse_repo_opening_increases_cash_but_not_equity_double_count():
     state = AccountState("demo", 1_000_000.0)
     deals = pd.DataFrame(
         {
@@ -18,14 +18,14 @@ def test_reverse_repo_t_day_is_asset_and_no_interest_recognized():
 
     nav = state.update("20260828", {}, deals, positions)
 
-    assert abs(state.cash_balance - 25_000.0) < 1e-9
+    assert abs(state.cash_balance - 1_975_000.0) < 1e-9
     assert abs(state.current_repo_mv - 975_000.0) < 1e-9
-    assert abs(state.current_asset - 1_000_000.0) < 1e-9
-    assert abs(state.current_profit - 0.0) < 1e-9
-    assert abs(nav - 1.0) < 1e-9
+    assert abs(state.current_asset - 1_975_000.0) < 1e-9
+    assert abs(state.current_profit - 975_000.0) < 1e-9
+    assert abs(nav - 1.975) < 1e-9
 
 
-def test_reverse_repo_interest_is_recognized_on_maturity_t_plus_1():
+def test_reverse_repo_maturity_returns_cash_without_double_counting_repo_in_equity():
     state = AccountState("demo", 1_000_000.0)
     day_t_deals = pd.DataFrame(
         {
@@ -44,6 +44,6 @@ def test_reverse_repo_interest_is_recognized_on_maturity_t_plus_1():
 
     expected_interest = 975000.0 * 1.095 / 100.0 / 365.0
     assert abs(state.current_repo_mv - 0.0) < 1e-9
-    assert abs(state.cash_balance - (1_000_000.0 + expected_interest)) < 1e-6
-    assert abs(state.current_asset - (1_000_000.0 + expected_interest)) < 1e-6
-    assert abs(nav_t1 - (1.0 + expected_interest / 1_000_000.0)) < 1e-9
+    assert abs(state.cash_balance - (1_000_000.0 + 975_000.0 + 975_000.0 + expected_interest)) < 1e-6
+    assert abs(state.current_asset - (1_000_000.0 + 975_000.0 + 975_000.0 + expected_interest)) < 1e-6
+    assert abs(nav_t1 - (1.975 + 975_000.0 / 1_000_000.0 + expected_interest / 1_000_000.0)) < 1e-9

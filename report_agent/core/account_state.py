@@ -135,6 +135,19 @@ class AccountState:
             }
         )
 
+    def _repo_interest_accrued(self, as_of_date: str | None = None) -> float:
+        reference_date = normalize_date_key(as_of_date) if as_of_date is not None else ""
+        total = 0.0
+        for repo in self.repo_positions:
+            trade_date = str(repo.get("trade_date", ""))
+            if reference_date and normalize_date_key(trade_date) >= reference_date:
+                continue
+            principal = float(repo.get("principal", 0.0))
+            rate = float(repo.get("rate", 0.0))
+            term_days = int(repo.get("term_days", 1) or 1)
+            total += principal * (rate / 100.0) * term_days / 365.0
+        return float(total)
+
     def update(self, date: str, account_info: Dict[str, float], deals_df: pd.DataFrame, positions_df: pd.DataFrame):
         self.current_positions = positions_df.copy() if not positions_df.empty else pd.DataFrame()
         history_date = normalize_date_key(date)
@@ -148,9 +161,7 @@ class AccountState:
                 rate = float(repo.get("rate", 0.0))
                 interest = principal * (rate / 100.0) * term_days / 365.0
                 self.cash_balance += principal
-                self._record_cash_entry(entries, "repo_maturity_principal_in", principal, self.cash_balance, history_date, note="逆回购到期本金回款", security_code=repo.get("security_code", ""))
                 self.cash_balance += interest
-                self._record_cash_entry(entries, "repo_maturity_interest_in", interest, self.cash_balance, history_date, note="逆回购到期利息入账", security_code=repo.get("security_code", ""))
             else:
                 remaining_repo_positions.append(repo)
         self.repo_positions = remaining_repo_positions
@@ -168,8 +179,7 @@ class AccountState:
                     term_days = self._parse_repo_term_days(security_code)
                     maturity_date = self._add_days(history_date, term_days)
                     rate = self._to_numeric(row.get("成交价格", 0.0))
-                    self.cash_balance -= amount
-                    self._record_cash_entry(entries, "repo_open_principal_out", -amount, self.cash_balance, history_date, note="逆回购成交，转入逆回购资产", security_code=security_code)
+                    self.cash_balance += amount
                     self.repo_positions.append(
                         {
                             "principal": amount,
@@ -194,7 +204,8 @@ class AccountState:
 
         self.current_stock_mv = self._to_numeric(positions_df.get("市值", pd.Series(dtype=float))) if positions_df is not None else 0.0
         self.current_repo_mv = float(sum(float(item.get("principal", 0.0)) for item in self.repo_positions))
-        self.current_asset = float(self.cash_balance + self.current_stock_mv + self.current_repo_mv)
+        accrued_interest = self._repo_interest_accrued(history_date)
+        self.current_asset = float(self.cash_balance + self.current_stock_mv + accrued_interest)
         self.current_profit = float(self.current_asset - self.base_total_equity)
 
         current_nav = self.calculate_nav(history_date, total_asset=self.current_asset)

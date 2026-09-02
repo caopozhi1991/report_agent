@@ -93,7 +93,14 @@ def run_for_account(account_id: str, day: str) -> None:
     repo_mv = float(sum(float(item.get("principal", 0.0)) for item in state.repo_positions))
     day_entries = [entry for entry in list(state.cash_ledger.get(day, [])) if str(entry.get("type", "")) != "snapshot_reconcile"]
     cash_balance = float(day_entries[-1].get("balance_after", state.cash_balance)) if day_entries else float(state.cash_balance)
-    total_asset = float(cash_balance + stock_mv + repo_mv)
+    accrued_interest = float(
+        sum(
+            float(item.get("principal", 0.0)) * float(item.get("rate", 0.0)) / 100.0 * int(item.get("term_days", 1) or 1) / 365.0
+            for item in state.repo_positions
+            if str(item.get("trade_date", "")) < day
+        )
+    )
+    total_asset = float(cash_balance + stock_mv + accrued_interest)
     profit = float(total_asset - initial_capital)
 
     state.current_stock_mv = stock_mv
