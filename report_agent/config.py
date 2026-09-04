@@ -9,7 +9,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 CONFIG = {
     "data_dir": "./data",
     "output_dir": "./reports",
-    "cache_dir": "./cache",
+    "cache_dir": os.getenv("REPORT_CACHE_DIR", "./cache"),
     "default_asset_type": "stock",
     "account_types": {
         "1219020189": "stock",

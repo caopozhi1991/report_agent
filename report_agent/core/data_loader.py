@@ -156,8 +156,6 @@ class DataLoader:
                 renamed[column] = pd.to_numeric(renamed[column], errors="coerce")
 
         final = renamed[[col for col in ["证券代码", "当前拥股", "成本价", "市值", "盈亏"] if col in renamed.columns]]
-        if "当前拥股" in final.columns:
-            final = final[final["当前拥股"].fillna(0) > 0].copy()
         return final
 
     def _to_float(self, value: Any) -> float:

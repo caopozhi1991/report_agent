@@ -46,7 +46,13 @@ def parse_term_days(code: str) -> int:
 
 
 def add_days(date_key: str, days: int) -> str:
-    return (pd.to_datetime(date_key, format="%Y%m%d") + pd.Timedelta(days=int(days))).strftime("%Y%m%d")
+    current = pd.to_datetime(date_key, format="%Y%m%d")
+    remain = max(int(days), 0)
+    while remain > 0:
+        current += pd.Timedelta(days=1)
+        if current.weekday() < 5:
+            remain -= 1
+    return current.strftime("%Y%m%d")
 
 
 def to_float(value: object) -> float:
@@ -117,10 +123,7 @@ def recalc_account(account_id: str, target_date: str, start_date: str, generate_
             }
         )
 
-    start_repo_mv = sum(float(item["principal"]) for item in repo_positions)
     start_stock_mv = stock_mv_of(position_history, start_date)
-    # User accounting rule: reverse repo principal stays in cash for equity calculation; only the
-    # repo interest is added to equity, while the principal is used as a funding base for interest.
     cash_balance = start_equity - start_stock_mv
 
     recalculated_nav = {k: v for k, v in old_nav_history.items() if k < start_date}
@@ -148,7 +151,6 @@ def recalc_account(account_id: str, target_date: str, start_date: str, generate_
                 rate = float(repo.get("rate", 0.0))
                 term_days = int(repo.get("term_days", 1) or 1)
                 interest = principal * (rate / 100.0) * term_days / 365.0
-                cash_balance += principal
                 cash_balance += interest
             else:
                 remaining_repo.append(repo)
@@ -164,7 +166,6 @@ def recalc_account(account_id: str, target_date: str, start_date: str, generate_
             op_upper = operation.upper()
 
             if is_repo_trade(row):
-                cash_balance += amount
                 term_days = parse_term_days(code)
                 repo_positions.append(
                     {
@@ -207,14 +208,7 @@ def recalc_account(account_id: str, target_date: str, start_date: str, generate_
                 )
 
         stock_mv = stock_mv_of(position_history, date_key)
-        accrued_interest = float(
-            sum(
-                float(item.get("principal", 0.0)) * float(item.get("rate", 0.0)) / 100.0 * int(item.get("term_days", 1) or 1) / 365.0
-                for item in repo_positions
-                if str(item.get("trade_date", "")) < date_key
-            )
-        )
-        total_equity = float(cash_balance + stock_mv + accrued_interest)
+        total_equity = float(cash_balance + stock_mv)
         recalculated_nav[date_key] = total_equity / base_total_equity if base_total_equity else 0.0
         cash_ledger[date_key] = entries
 
@@ -228,15 +222,8 @@ def recalc_account(account_id: str, target_date: str, start_date: str, generate_
     payload["cash_balance"] = float(cash_balance)
 
     last_stock_mv = stock_mv_of(position_history, target_date)
-    last_repo_mv = float(sum(float(item.get("principal", 0.0)) for item in repo_positions))
-    last_interest = float(
-        sum(
-            float(item.get("principal", 0.0)) * float(item.get("rate", 0.0)) / 100.0 * int(item.get("term_days", 1) or 1) / 365.0
-            for item in repo_positions
-            if str(item.get("trade_date", "")) < target_date
-        )
-    )
-    last_total_equity = float(cash_balance + last_stock_mv + last_interest)
+    last_repo_mv = 0.0
+    last_total_equity = float(cash_balance + last_stock_mv)
     payload["current_stock_mv"] = last_stock_mv
     payload["current_repo_mv"] = last_repo_mv
     payload["current_asset"] = last_total_equity

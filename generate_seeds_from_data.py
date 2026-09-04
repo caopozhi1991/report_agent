@@ -65,6 +65,7 @@ def build_seed(account_id: str) -> dict:
     total_asset = safe_float(account_info.get("total_asset", 0.0), 0.0)
     stock_mv = safe_float(positions_df.get("市值", pd.Series(dtype=float)).sum(), 0.0)
     available_cash = safe_float(account_info.get("available_cash", 0.0), 0.0)
+    seed_cash = initial_capital if initial_capital > 0 else available_cash
     profit = safe_float(account_info.get("profit", total_asset - initial_capital), total_asset - initial_capital)
 
     nav = (total_asset / initial_capital) if initial_capital else 1.0
@@ -82,7 +83,7 @@ def build_seed(account_id: str) -> dict:
         "initial_capital": initial_capital,
         "positions": positions_df.to_dict(orient="records") if not positions_df.empty else [],
         "nav_history": {trade_date: nav},
-        "cash_balance": available_cash,
+        "cash_balance": seed_cash,
         "repo_positions": [],
         "cash_ledger": {
             trade_date: [
@@ -90,7 +91,7 @@ def build_seed(account_id: str) -> dict:
                     "date": trade_date,
                     "type": "seed_init",
                     "amount": 0.0,
-                    "balance_after": available_cash,
+                    "balance_after": seed_cash,
                     "security_code": "",
                     "note": "from data csv",
                 }
@@ -98,6 +99,7 @@ def build_seed(account_id: str) -> dict:
         },
         "base_total_equity": initial_capital if initial_capital else max(total_asset, 1.0),
         "repo_mv": 0.0,
+        "equity_model_version": 2,
     }
     return seed
 

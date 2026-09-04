@@ -32,6 +32,7 @@ class AccountState:
         current_repo_mv: float = 0.0,
         peak_nav: float | None = None,
         peak_date: str | None = None,
+        equity_model_version: int = 2,
     ):
         self.account_id = account_id
         self.initial_capital = float(initial_capital)
@@ -46,6 +47,7 @@ class AccountState:
         self.cash_ledger = {normalize_date_key(k): list(v) for k, v in (cash_ledger or {}).items()}
         self.current_stock_mv = float(current_stock_mv)
         self.current_repo_mv = float(current_repo_mv)
+        self.equity_model_version = int(equity_model_version)
         self.base_total_equity = self._resolve_base_total_equity(base_total_equity)
         self.peak_nav = float(peak_nav) if peak_nav is not None else (float(self.nav_history.max()) if not self.nav_history.empty else 1.0)
         self.peak_date = normalize_date_key(peak_date) if peak_date is not None else (str(self.nav_history.idxmax()) if not self.nav_history.empty else "")
@@ -110,7 +112,13 @@ class AccountState:
     @staticmethod
     def _add_days(date_key: str, days: int) -> str:
         try:
-            return (pd.to_datetime(date_key, format="%Y%m%d") + pd.Timedelta(days=int(days))).strftime("%Y%m%d")
+            current = pd.to_datetime(date_key, format="%Y%m%d")
+            remain = max(int(days), 0)
+            while remain > 0:
+                current += pd.Timedelta(days=1)
+                if current.weekday() < 5:
+                    remain -= 1
+            return current.strftime("%Y%m%d")
         except Exception:
             return date_key
 
@@ -135,21 +143,33 @@ class AccountState:
             }
         )
 
-    def _repo_interest_accrued(self, as_of_date: str | None = None) -> float:
-        reference_date = normalize_date_key(as_of_date) if as_of_date is not None else ""
-        total = 0.0
-        for repo in self.repo_positions:
-            trade_date = str(repo.get("trade_date", ""))
-            if reference_date and normalize_date_key(trade_date) >= reference_date:
-                continue
-            principal = float(repo.get("principal", 0.0))
-            rate = float(repo.get("rate", 0.0))
-            term_days = int(repo.get("term_days", 1) or 1)
-            total += principal * (rate / 100.0) * term_days / 365.0
-        return float(total)
+    @staticmethod
+    def _split_realized_unrealized_pnl(positions_df: pd.DataFrame) -> tuple[float, float, float, pd.DataFrame]:
+        if positions_df is None or positions_df.empty:
+            return 0.0, 0.0, 0.0, pd.DataFrame()
+
+        frame = positions_df.copy()
+        if "当前拥股" not in frame.columns:
+            frame["当前拥股"] = 0.0
+        if "盈亏" not in frame.columns:
+            frame["盈亏"] = 0.0
+        if "市值" not in frame.columns:
+            frame["市值"] = 0.0
+
+        shares = pd.to_numeric(frame["当前拥股"], errors="coerce").fillna(0.0)
+        pnl = pd.to_numeric(frame["盈亏"], errors="coerce").fillna(0.0)
+        mv = pd.to_numeric(frame["市值"], errors="coerce").fillna(0.0)
+
+        closed_mask = shares == 0
+        holding_mask = shares > 0
+
+        realized_daily = float(pnl.loc[closed_mask].sum())
+        unrealized = float(pnl.loc[holding_mask].sum())
+        stock_mv = float(mv.loc[holding_mask].sum())
+        holdings = frame.loc[holding_mask].copy()
+        return realized_daily, unrealized, stock_mv, holdings
 
     def update(self, date: str, account_info: Dict[str, float], deals_df: pd.DataFrame, positions_df: pd.DataFrame):
-        self.current_positions = positions_df.copy() if not positions_df.empty else pd.DataFrame()
         history_date = normalize_date_key(date)
 
         entries: List[Dict[str, Any]] = []
@@ -160,8 +180,16 @@ class AccountState:
                 term_days = int(repo.get("term_days", 1) or 1)
                 rate = float(repo.get("rate", 0.0))
                 interest = principal * (rate / 100.0) * term_days / 365.0
-                self.cash_balance += principal
                 self.cash_balance += interest
+                self._record_cash_entry(
+                    entries,
+                    "repo_interest_in",
+                    interest,
+                    self.cash_balance,
+                    history_date,
+                    note="逆回购到期利息到账",
+                    security_code=str(repo.get("security_code", "")),
+                )
             else:
                 remaining_repo_positions.append(repo)
         self.repo_positions = remaining_repo_positions
@@ -179,7 +207,6 @@ class AccountState:
                     term_days = self._parse_repo_term_days(security_code)
                     maturity_date = self._add_days(history_date, term_days)
                     rate = self._to_numeric(row.get("成交价格", 0.0))
-                    self.cash_balance += amount
                     self.repo_positions.append(
                         {
                             "principal": amount,
@@ -192,20 +219,25 @@ class AccountState:
                     )
                     continue
 
-                op_upper = operation.upper()
-                if "买入" in operation or "BUY" in op_upper or op_upper == "B":
-                    self.cash_balance -= amount
-                    self._record_cash_entry(entries, "stock_buy_out", -amount, self.cash_balance, history_date, note="股票买入现金流出", security_code=security_code)
-                elif "卖出" in operation or "SELL" in op_upper or op_upper == "S":
-                    self.cash_balance += amount
-                    self._record_cash_entry(entries, "stock_sell_in", amount, self.cash_balance, history_date, note="股票卖出现金流入", security_code=security_code)
+        realized_daily, unrealized, stock_mv, holdings = self._split_realized_unrealized_pnl(positions_df)
+        if realized_daily != 0.0:
+            self.cash_balance += realized_daily
+            self._record_cash_entry(
+                entries,
+                "realized_pnl_in",
+                realized_daily,
+                self.cash_balance,
+                history_date,
+                note="当日平仓盈亏并入现金",
+            )
+
+        self.current_positions = holdings
 
         self.cash_ledger[history_date] = entries
 
-        self.current_stock_mv = self._to_numeric(positions_df.get("市值", pd.Series(dtype=float))) if positions_df is not None else 0.0
-        self.current_repo_mv = float(sum(float(item.get("principal", 0.0)) for item in self.repo_positions))
-        accrued_interest = self._repo_interest_accrued(history_date)
-        self.current_asset = float(self.cash_balance + self.current_stock_mv + accrued_interest)
+        self.current_stock_mv = stock_mv
+        self.current_repo_mv = 0.0
+        self.current_asset = float(self.cash_balance + unrealized)
         self.current_profit = float(self.current_asset - self.base_total_equity)
 
         current_nav = self.calculate_nav(history_date, total_asset=self.current_asset)
@@ -277,6 +309,7 @@ class AccountState:
             "base_total_equity": self.base_total_equity,
             "current_stock_mv": self.current_stock_mv,
             "current_repo_mv": self.current_repo_mv,
+            "equity_model_version": self.equity_model_version,
             "peak_nav": self.peak_nav,
             "peak_date": normalize_date_key(self.peak_date) if self.peak_date else "",
         }
@@ -306,6 +339,7 @@ class AccountState:
             base_total_equity=payload.get("base_total_equity"),
             current_stock_mv=payload.get("current_stock_mv", 0.0),
             current_repo_mv=payload.get("current_repo_mv", 0.0),
+            equity_model_version=payload.get("equity_model_version", 1),
             peak_nav=payload.get("peak_nav"),
             peak_date=payload.get("peak_date"),
         )
@@ -331,6 +365,7 @@ class AccountState:
             base_total_equity=seed_data.get("base_total_equity", initial_capital),
             current_stock_mv=float(seed_data.get("stock_mv", 0.0)),
             current_repo_mv=float(seed_data.get("repo_mv", 0.0)),
+            equity_model_version=2,
             peak_nav=seed_data.get("peak_nav", float(pd.Series(nav_history, dtype=float).max()) if nav_history else 1.0),
             peak_date=seed_data.get("peak_date", str(sorted(nav_history.keys())[-1]) if nav_history else ""),
         )
